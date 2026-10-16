@@ -40,10 +40,19 @@ endif()
 #
 include(FetchContent)
 
+if(USE_HCU)
+  # HCU: use the Hygon DTK adapted common (roctx/NVTX port), main branch
+  set(REPO_COMMON_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/triton-inference-server-common-das.git")
+  set(REPO_COMMON_GIT_TAG "main")
+else()
+  set(REPO_COMMON_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/common.git")
+  set(REPO_COMMON_GIT_TAG "${TRITON_COMMON_REPO_TAG}")
+endif()
+
 FetchContent_Declare(
   repo-common
-  GIT_REPOSITORY ${TRITON_REPO_ORGANIZATION}/common.git
-  GIT_TAG ${TRITON_COMMON_REPO_TAG}
+  GIT_REPOSITORY ${REPO_COMMON_GIT_REPOSITORY}
+  GIT_TAG ${REPO_COMMON_GIT_TAG}
 )
 
 set(TRITON_COMMON_ENABLE_PROTOBUF ON)
@@ -54,7 +63,13 @@ FetchContent_MakeAvailable(repo-common)
 # CUDA
 #
 if(${TRITON_ENABLE_GPU})
-  find_package(CUDAToolkit REQUIRED)
+  if(USE_HCU)
+    find_package(hip REQUIRED CONFIG PATHS ${ROCM_PATH} /opt/dtk /opt/rocm)
+    add_library(CUDA::cudart INTERFACE IMPORTED)
+    set_target_properties(CUDA::cudart PROPERTIES INTERFACE_LINK_LIBRARIES hip::host)
+  else()
+    find_package(CUDAToolkit REQUIRED)
+  endif()
 endif() # TRITON_ENABLE_GPU
 
 #
@@ -246,10 +261,13 @@ add_library(
 )
 
 target_compile_features(triton-core PRIVATE cxx_std_${TRITON_MIN_CXX_STANDARD})
+if(USE_HCU)
+  target_compile_definitions(triton-core PRIVATE USE_HCU)
+endif()
 target_compile_options(
   triton-core
   PRIVATE
-    -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-error=maybe-uninitialized -Werror
+    -Wall -Wextra -Wno-unused-parameter -Wno-deprecated-declarations -Wno-error=maybe-uninitialized $<$<NOT:$<BOOL:${USE_HCU}>>:-Werror>
 )
 set_target_properties(
   triton-core
@@ -493,12 +511,14 @@ if(${TRITON_ENABLE_AZURE_STORAGE})
 endif() # TRITON_ENABLE_AZURE_STORAGE
 
 if(${TRITON_ENABLE_GPU})
-  find_library(CNMEM_LIBRARY NAMES cnmem PATHS ${CNMEM_PATH}/lib)
+  if(NOT USE_HCU)
+    find_library(CNMEM_LIBRARY NAMES cnmem PATHS ${CNMEM_PATH}/lib)
+  endif()
   target_link_libraries(
     triton-core
     PRIVATE
-      ${CNMEM_LIBRARY}
       CUDA::cudart
+      $<$<NOT:$<BOOL:${USE_HCU}>>:${CNMEM_LIBRARY}>
   )
 endif() # TRITON_ENABLE_GPU
 
@@ -519,4 +539,6 @@ install(
   RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
-add_subdirectory(test test)
+if(NOT USE_HCU)
+  add_subdirectory(test test)
+endif()

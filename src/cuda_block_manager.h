@@ -26,8 +26,12 @@
 //
 #pragma once
 
+#ifdef USE_HCU
+#include <hip/hip_runtime.h>
+#else
 #include <cuda.h>
 #include <cuda_runtime.h>
+#endif
 
 #include <memory>
 #include <mutex>
@@ -59,7 +63,11 @@ class CudaBlockManager {
 
  private:
   CudaBlockManager(){};
+#ifdef USE_HCU
+  std::unordered_map<int, std::vector<hipMemGenericAllocationHandle_t>>
+#else
   std::unordered_map<int, std::vector<CUmemGenericAllocationHandle>>
+#endif
       free_blocks_;
   size_t block_size_;
   std::mutex mu_;
@@ -77,7 +85,11 @@ class Allocation {
   ///
   /// \param block The memory block to be added.
   ///
+#ifdef USE_HCU
+  void AddBlock(hipMemGenericAllocationHandle_t block)
+#else
   void AddBlock(CUmemGenericAllocationHandle block)
+#endif
   {
     blocks_.push_back(block);
   }
@@ -92,13 +104,21 @@ class Allocation {
   /// allocation.
   ///
   /// \return The list of all the memory blocks.
+#ifdef USE_HCU
+  std::vector<hipMemGenericAllocationHandle_t>& Blocks() { return blocks_; }
+#else
   std::vector<CUmemGenericAllocationHandle>& Blocks() { return blocks_; }
+#endif
 
   ~Allocation() { CudaBlockManager::Free(this, device_id_); }
 
  private:
   DISALLOW_COPY_AND_ASSIGN(Allocation);
+#ifdef USE_HCU
+  std::vector<hipMemGenericAllocationHandle_t> blocks_;
+#else
   std::vector<CUmemGenericAllocationHandle> blocks_;
+#endif
   int device_id_;
 };
 }};  // namespace triton::core

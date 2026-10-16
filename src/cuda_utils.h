@@ -35,13 +35,28 @@
 #include "triton/common/sync_queue.h"
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#include <hip/hip_runtime.h>
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda.h>
 #include <cuda_runtime_api.h>
+#endif
 #endif  // TRITON_ENABLE_GPU
 
 namespace triton { namespace core {
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#define RETURN_IF_CUDA_ERR(X, MSG)                                           \
+  do {                                                                       \
+    hipError_t err__ = (X);                                                  \
+    if (err__ != hipSuccess) {                                               \
+      return Status(                                                         \
+          Status::Code::INTERNAL, (MSG) + ": " + hipGetErrorString(err__));  \
+    }                                                                        \
+  } while (false)
+#else
 #define RETURN_IF_CUDA_ERR(X, MSG)                                           \
   do {                                                                       \
     cudaError_t err__ = (X);                                                 \
@@ -50,7 +65,20 @@ namespace triton { namespace core {
           Status::Code::INTERNAL, (MSG) + ": " + cudaGetErrorString(err__)); \
     }                                                                        \
   } while (false)
+#endif
 
+#ifdef USE_HCU
+#define RETURN_IF_CUDA_DRIVER_ERR(X, MSG)                                   \
+  do {                                                                      \
+    hipError_t cuda_err__ = (X);                                            \
+    if (cuda_err__ != hipSuccess) {                                         \
+      const char* error_string__;                                           \
+      CudaDriverHelper::GetInstance().CuGetErrorString(                     \
+          &error_string__, cuda_err__);                                     \
+      return Status(Status::Code::INTERNAL, (MSG) + ": " + error_string__); \
+    }                                                                       \
+  } while (false)
+#else
 #define RETURN_IF_CUDA_DRIVER_ERR(X, MSG)                                   \
   do {                                                                      \
     CUresult cuda_err__ = (X);                                              \
@@ -61,10 +89,15 @@ namespace triton { namespace core {
       return Status(Status::Code::INTERNAL, (MSG) + ": " + error_string__); \
     }                                                                       \
   } while (false)
+#endif
 #endif  // TRITON_ENABLE_GPU
 
 #ifndef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+using hipStream_t = void*;
+#else
 using cudaStream_t = void*;
+#endif
 #endif  // !TRITON_ENABLE_GPU
 
 /// Get the memory info for the specified device.
@@ -105,7 +138,11 @@ Status CopyBuffer(
     const int64_t src_memory_type_id,
     const TRITONSERVER_MemoryType dst_memory_type,
     const int64_t dst_memory_type_id, const size_t byte_size, const void* src,
+#ifdef USE_HCU
+    void* dst, hipStream_t hip_stream, bool* cuda_used,
+#else
     void* dst, cudaStream_t cuda_stream, bool* cuda_used,
+#endif
     bool copy_on_stream = false);
 
 #ifdef TRITON_ENABLE_GPU
@@ -145,6 +182,21 @@ class ScopedSetDevice {
     overriden_ = false;
 
     prev_device_ = device;
+#ifdef USE_HCU
+    hipGetDevice(&prev_device_);
+
+    if (prev_device_ != device) {
+      overriden_ = true;
+      hipSetDevice(device);
+    }
+  }
+
+  ~ScopedSetDevice()
+  {
+    if (overriden_) {
+      hipSetDevice(prev_device_);
+    }
+#else
     cudaGetDevice(&prev_device_);
 
     if (prev_device_ != device) {
@@ -158,6 +210,7 @@ class ScopedSetDevice {
     if (overriden_) {
       cudaSetDevice(prev_device_);
     }
+#endif
   }
 
  private:
@@ -173,7 +226,11 @@ void CopyBufferHandler(
     const int64_t src_memory_type_id,
     const TRITONSERVER_MemoryType dst_memory_type,
     const int64_t dst_memory_type_id, const size_t byte_size, const void* src,
+#ifdef USE_HCU
+    void* dst, hipStream_t hip_stream, void* response_ptr,
+#else
     void* dst, cudaStream_t cuda_stream, void* response_ptr,
+#endif
     triton::common::SyncQueue<std::tuple<Status, bool, void*>>*
         completion_queue);
 
@@ -204,6 +261,27 @@ class CudaDriverHelper {
  private:
   void* dl_open_handle_ = nullptr;
   std::string error_str_;
+#ifdef USE_HCU
+  hipError_t (*cu_mem_create_fn_)(
+      hipMemGenericAllocationHandle_t*, size_t, hipMemAllocationProp*,
+      unsigned long long) = nullptr;
+  hipError_t (*cu_mem_map_fn_)(
+      hipDeviceptr_t ptr, size_t size, size_t offset,
+      hipMemGenericAllocationHandle_t handle, unsigned long long flags) = nullptr;
+  hipError_t (*cu_mem_set_access_fn_)(
+      hipDeviceptr_t, size_t, const hipMemAccessDesc*, size_t) = nullptr;
+  hipError_t (*cu_get_error_string_fn_)(hipError_t, const char**) = nullptr;
+  hipError_t (*cu_mem_get_allocation_granularity_fn_)(
+      size_t*, const hipMemAllocationProp*,
+      hipMemAllocationGranularity_flags) = nullptr;
+  hipError_t (*cu_mem_release_fn_)(hipMemGenericAllocationHandle_t) = nullptr;
+  hipError_t (*cu_init_fn_)(unsigned int) = nullptr;
+  hipError_t (*cu_mem_address_reserve_fn_)(
+      hipDeviceptr_t* ptr, size_t size, size_t alignment, hipDeviceptr_t addr,
+      unsigned long long flags) = nullptr;
+  hipError_t (*cu_mem_unmap_fn_)(hipDeviceptr_t ptr, size_t size) = nullptr;
+  hipError_t (*cu_mem_address_free_fn_)(hipDeviceptr_t ptr, size_t size) = nullptr;
+#else
   CUresult (*cu_mem_create_fn_)(
       CUmemGenericAllocationHandle*, size_t, CUmemAllocationProp*,
       unsigned long long) = nullptr;
@@ -223,6 +301,7 @@ class CudaDriverHelper {
       unsigned long long flags) = nullptr;
   CUresult (*cu_mem_unmap_fn_)(CUdeviceptr ptr, size_t size) = nullptr;
   CUresult (*cu_mem_address_free_fn_)(CUdeviceptr ptr, size_t size) = nullptr;
+#endif
   CudaDriverHelper();
 
   ~CudaDriverHelper();
@@ -233,6 +312,26 @@ class CudaDriverHelper {
   bool IsAvailable();
   const std::string& GetErrorString() const { return error_str_; }
   void ClearErrorString() { return error_str_.clear(); }
+#ifdef USE_HCU
+  Status CuMemGetAllocationGranularity(
+      size_t* aligned_size, const hipMemAllocationProp* prop,
+      hipMemAllocationGranularity_flags flags);
+  Status CuMemCreate(
+      hipMemGenericAllocationHandle_t* block, size_t byte_size,
+      hipMemAllocationProp* prop, unsigned long long flags);
+  Status CuMemSetAccess(
+      hipDeviceptr_t ptr, size_t size, const hipMemAccessDesc* desc, size_t count);
+  Status CuMemMap(
+      hipDeviceptr_t ptr, size_t size, size_t offset,
+      hipMemGenericAllocationHandle_t handle, unsigned long long flags);
+  Status CuMemRelease(hipMemGenericAllocationHandle_t handle);
+  Status CuMemAddressFree(hipDeviceptr_t ptr, size_t size);
+  Status CuMemUnmap(hipDeviceptr_t ptr, size_t size);
+  Status CuMemAddressReserve(
+      hipDeviceptr_t* ptr, size_t size, size_t alignment, hipDeviceptr_t addr,
+      unsigned long long flags);
+  void CuGetErrorString(const char** error_string, hipError_t error);
+#else
   Status CuMemGetAllocationGranularity(
       size_t* aligned_size, const CUmemAllocationProp* prop,
       CUmemAllocationGranularity_flags flags);
@@ -251,6 +350,7 @@ class CudaDriverHelper {
       CUdeviceptr* ptr, size_t size, size_t alignment, CUdeviceptr addr,
       unsigned long long flags);
   void CuGetErrorString(const char** error_string, CUresult error);
+#endif
 };
 
 /// Get the minimum allocation granularity.

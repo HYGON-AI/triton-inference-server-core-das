@@ -129,7 +129,7 @@ target_compile_features(triton-core-serverstub PRIVATE cxx_std_${TRITON_MIN_CXX_
 target_compile_options(
   triton-core-serverstub
   PRIVATE
-    -Wall -Wextra -Wno-unused-parameter -Werror
+    -Wall -Wextra -Wno-unused-parameter $<$<NOT:$<BOOL:${USE_HCU}>>:-Werror>
 )
 
 set_target_properties(
@@ -142,6 +142,8 @@ set_target_properties(
 #
 # Shared library implementing Triton Server API
 #
+option(USE_HCU "Enable HCU (Hygon DTK/ROCm) GPU support instead of CUDA" OFF)
+
 if(NOT TRITON_CORE_HEADERS_ONLY)
   include(CMakeDependentOption)
 
@@ -153,8 +155,23 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   option(TRITON_ENABLE_NVTX "Include NVTX support in server" OFF)
   option(TRITON_ENABLE_GPU "Enable GPU support in server" ON)
   option(TRITON_ENABLE_MALI_GPU "Enable Arm Mali GPU support in server" OFF)
-  set(TRITON_MIN_COMPUTE_CAPABILITY "7.5" CACHE STRING
-      "The minimum CUDA compute capability supported by Triton" )
+  if(USE_HCU)
+    # HCU: locate the ROCm / Hygon DTK installation root
+    if(DEFINED ENV{ROCM_PATH})
+      set(DEFAULT_ROCM_PATH $ENV{ROCM_PATH})
+    elseif(DEFINED ENV{DTK_PATH})
+      set(DEFAULT_ROCM_PATH $ENV{DTK_PATH})
+    elseif(EXISTS "/opt/dtk")
+      set(DEFAULT_ROCM_PATH "/opt/dtk")
+    else()
+      set(DEFAULT_ROCM_PATH "/opt/rocm")
+    endif()
+    set(ROCM_PATH "${DEFAULT_ROCM_PATH}" CACHE PATH "Path to ROCm/DTK installation")
+    set(ROCM_ARCH "native" CACHE STRING "Target ROCm / GFX architecture (e.g. gfx906, gfx908, native)")
+  else()
+    set(TRITON_MIN_COMPUTE_CAPABILITY "7.5" CACHE STRING
+        "The minimum CUDA compute capability supported by Triton" )
+  endif()
   set(TRITON_EXTRA_LIB_PATHS "" CACHE PATH "Extra library paths for Triton Server build")
 
   # Ensemble
@@ -165,14 +182,26 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   option(TRITON_ENABLE_METRICS_GPU "Include GPU metrics support in server" ON)
   option(TRITON_ENABLE_METRICS_CPU "Include CPU metrics support in server" ON)
 
+  # HCU: the GPU-metrics path depends on DCGM (dcgm_agent.h + DCGM::dcgm). DTK
+  # does not ship DCGM, and hcu-dcgm only provides a Go library / HTTP service
+  # (no DCGM-compatible C library), so TRITON_ENABLE_METRICS_GPU is not
+  # supported on HCU yet. Force it off so the HCU build never requires DCGM.
+  if(USE_HCU AND TRITON_ENABLE_METRICS_GPU)
+    message(WARNING
+      "USE_HCU=ON: TRITON_ENABLE_METRICS_GPU is not supported on HCU yet "
+      "(DCGM is unavailable); forcing TRITON_ENABLE_METRICS_GPU=OFF")
+    set(TRITON_ENABLE_METRICS_GPU OFF CACHE BOOL
+        "Include GPU metrics support in server" FORCE)
+  endif()
+
   # Cloud storage
   option(TRITON_ENABLE_GCS "Include GCS Filesystem support in server" OFF)
   option(TRITON_ENABLE_S3 "Include S3 Filesystem support in server" OFF)
   option(TRITON_ENABLE_AZURE_STORAGE "Include Azure Storage Filesystem support in server" OFF)
 
   # Repo tags
-  set(TRITON_REPO_ORGANIZATION "https://github.com/triton-inference-server" CACHE STRING "Git repository to pull from")
-  set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/common repo")
+  set(TRITON_REPO_ORGANIZATION "https://github.com/forwithgod" CACHE STRING "Git repository to pull from")
+  set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server-common-das repo")
   set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/third_party repo")
 
   # Third-party location
@@ -278,8 +307,24 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
     set(TRITON_DEPENDS ${TRITON_DEPENDS} prometheus-cpp)
   endif() # TRITON_ENABLE_METRICS
   if(${TRITON_ENABLE_GPU})
-    set(TRITON_DEPENDS ${TRITON_DEPENDS} cnmem)
+    if(NOT USE_HCU)
+      set(TRITON_DEPENDS ${TRITON_DEPENDS} cnmem)
+    endif()
   endif() # TRITON_ENABLE_GPU
+
+  # HCU: expose ROCm/DTK prefixes to the inner triton-core build
+  if(TRITON_ENABLE_GPU AND USE_HCU)
+    list(APPEND CMAKE_PREFIX_PATH
+      "${ROCM_PATH}"
+      "${ROCM_PATH}/lib/cmake"
+      "${ROCM_PATH}/hip/cmake"
+    )
+  endif()
+
+  set(TRITON_CORE_EXTRA_CMAKE_ARGS "")
+  if(NOT USE_HCU)
+    list(APPEND TRITON_CORE_EXTRA_CMAKE_ARGS -DCNMEM_PATH:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/cnmem)
+  endif()
 
   ExternalProject_Add(triton-core
     PREFIX triton-core
@@ -320,7 +365,7 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
       -Daws-c-mqtt_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/${LIB_DIR}/aws-c-mqtt/cmake
       -Daws-c-sdkutils_DIR:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/aws-sdk-cpp/${LIB_DIR}/aws-c-sdkutils/cmake
       -DCMAKE_PREFIX_PATH:PATH=${CMAKE_PREFIX_PATH}
-      -DCNMEM_PATH:PATH=${TRITON_THIRD_PARTY_INSTALL_PREFIX}/cnmem
+      ${TRITON_CORE_EXTRA_CMAKE_ARGS}
       -DTRITON_REPO_ORGANIZATION:STRING=${TRITON_REPO_ORGANIZATION}
       -DTRITON_COMMON_REPO_TAG:STRING=${TRITON_COMMON_REPO_TAG}
       -DTRITON_EXTRA_LIB_PATHS:PATH=${TRITON_EXTRA_LIB_PATHS}
@@ -342,6 +387,8 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
       -DCMAKE_BUILD_TYPE:STRING=${CMAKE_BUILD_TYPE}
       -DCMAKE_INSTALL_PREFIX:PATH=${TRITON_INSTALL_PREFIX}
       -DTRITON_VERSION:STRING=${TRITON_VERSION}
+      -DUSE_HCU:BOOL=${USE_HCU}
+      -DROCM_PATH:PATH=${ROCM_PATH}
     DEPENDS ${TRITON_DEPENDS}
   )
 endif() # NOT TRITON_CORE_HEADERS_ONLY

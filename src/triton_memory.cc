@@ -30,7 +30,11 @@
 #include "triton/common/logging.h"
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda_runtime_api.h>
+#endif
 
 #include "cuda_memory_manager.h"
 #include "cuda_utils.h"
@@ -169,7 +173,11 @@ MutableMemory::SetMemory(unsigned char value)
 #ifdef TRITON_ENABLE_GPU
     ScopedSetDevice scoped_set_device(buffer_attributes_.MemoryTypeId());
     RETURN_IF_CUDA_ERR(
+#ifdef USE_HCU
+        hipMemset(buffer_, value, TotalByteSize()),
+#else
         cudaMemset(buffer_, value, TotalByteSize()),
+#endif
         std::string("failed to set the data to zero."));
 #else
     return Status(
@@ -271,12 +279,21 @@ GrowableMemory::GrowableMemory(
     size_t virtual_address_size)
     : MutableMemory(nullptr, byte_size, memory_type, memory_type_id)
 {
+#ifdef USE_HCU
+  allocation_prop_.type = hipMemAllocationTypePinned;
+  allocation_prop_.location.type = hipMemLocationTypeDevice;
+  allocation_prop_.location.id = memory_type_id;
+
+  access_desc_.location = allocation_prop_.location;
+  access_desc_.flags = hipMemAccessFlagsProtReadWrite;
+#else
   allocation_prop_.type = CU_MEM_ALLOCATION_TYPE_PINNED;
   allocation_prop_.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
   allocation_prop_.location.id = memory_type_id;
 
   access_desc_.location = allocation_prop_.location;
   access_desc_.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+#endif
 
   virtual_address_size_ = virtual_address_size;
   allocation_ = std::move(allocation);
@@ -322,7 +339,11 @@ GrowableMemory::Create(
 
   void* buffer;
   RETURN_IF_ERROR(CudaDriverHelper::GetInstance().CuMemAddressReserve(
+#ifdef USE_HCU
+      reinterpret_cast<hipDeviceptr_t*>(&buffer), virtual_address_size,
+#else
       reinterpret_cast<CUdeviceptr*>(&buffer), virtual_address_size,
+#endif
       0 /* alignment */, 0 /* start_address */, 0 /* flags */));
   growable_memory.reset(new GrowableMemory(
       CudaBlockManager::BlockSize() * allocation->Blocks().size(), memory_type,
@@ -343,13 +364,25 @@ GrowableMemory::Create(
 
 #ifdef TRITON_ENABLE_GPU
 Status
+#ifdef USE_HCU
+GrowableMemory::Map(hipMemGenericAllocationHandle_t& block)
+#else
 GrowableMemory::Map(CUmemGenericAllocationHandle& block)
+#endif
 {
   RETURN_IF_ERROR(CudaDriverHelper::GetInstance().CuMemMap(
+#ifdef USE_HCU
+      reinterpret_cast<hipDeviceptr_t>(reinterpret_cast<uintptr_t>(buffer_) + virtual_address_offset_),
+#else
       reinterpret_cast<CUdeviceptr>(buffer_) + virtual_address_offset_,
+#endif
       CudaBlockManager::BlockSize(), 0UL, block, 0UL /* flags */));
   RETURN_IF_ERROR(CudaDriverHelper::GetInstance().CuMemSetAccess(
+#ifdef USE_HCU
+      reinterpret_cast<hipDeviceptr_t>(reinterpret_cast<uintptr_t>(buffer_) + virtual_address_offset_),
+#else
       reinterpret_cast<CUdeviceptr>(buffer_) + virtual_address_offset_,
+#endif
       CudaBlockManager::BlockSize(), &access_desc_, 1ULL /* Mapping size */));
   virtual_address_offset_ += CudaBlockManager::BlockSize();
   return Status::Success;
@@ -408,9 +441,17 @@ GrowableMemory::~GrowableMemory()
 {
 #ifdef TRITON_ENABLE_GPU
   CudaDriverHelper::GetInstance().CuMemUnmap(
+#ifdef USE_HCU
+      reinterpret_cast<hipDeviceptr_t>(buffer_), buffer_attributes_.ByteSize());
+#else
       reinterpret_cast<CUdeviceptr>(buffer_), buffer_attributes_.ByteSize());
+#endif
   CudaDriverHelper::GetInstance().CuMemAddressFree(
+#ifdef USE_HCU
+      reinterpret_cast<hipDeviceptr_t>(buffer_), virtual_address_size_);
+#else
       reinterpret_cast<CUdeviceptr>(buffer_), virtual_address_size_);
+#endif
 #endif
 }
 

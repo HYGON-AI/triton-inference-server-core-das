@@ -37,7 +37,11 @@
 #include "triton/common/logging.h"
 
 #ifdef TRITON_ENABLE_METRICS_GPU
+#ifdef USE_HCU
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda_runtime_api.h>
+#endif
 
 #include <cstring>
 #include <set>
@@ -868,8 +872,13 @@ Metrics::InitializeDcgmMetrics()
 
   // Get CUDA-visible PCI Bus Ids and get DCGM metrics for each CUDA-visible GPU
   int cuda_gpu_count;
+#ifdef USE_HCU
+  hipError_t cudaerr = hipGetDeviceCount(&cuda_gpu_count);
+  if (cudaerr != hipSuccess) {
+#else
   cudaError_t cudaerr = cudaGetDeviceCount(&cuda_gpu_count);
   if (cudaerr != cudaSuccess) {
+#endif
     LOG_WARNING
         << "Cannot get CUDA device count, GPU metrics will not be available";
     return false;
@@ -877,8 +886,13 @@ Metrics::InitializeDcgmMetrics()
   for (int i = 0; i < cuda_gpu_count; ++i) {
     std::string pci_bus_id = "0000";  // pad 0's for uniformity
     char pcibusid_str[64];
+#ifdef USE_HCU
+    cudaerr = hipDeviceGetPCIBusId(pcibusid_str, sizeof(pcibusid_str) - 1, i);
+    if (cudaerr == hipSuccess) {
+#else
     cudaerr = cudaDeviceGetPCIBusId(pcibusid_str, sizeof(pcibusid_str) - 1, i);
     if (cudaerr == cudaSuccess) {
+#endif
       pci_bus_id.append(pcibusid_str);
       if (pci_bus_id_to_dcgm_id.count(pci_bus_id) <= 0) {
         LOG_INFO << "Skipping GPU:" << i

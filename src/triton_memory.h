@@ -208,12 +208,21 @@ class GrowableMemory : public MutableMemory {
       int64_t memory_type_id, std::unique_ptr<Allocation>&& allocation,
       size_t virtual_page_size);
 
+#ifdef USE_HCU
+  Status Map(hipMemGenericAllocationHandle_t& block);
+#else
   Status Map(CUmemGenericAllocationHandle& block);
+#endif
 
   std::unique_ptr<Allocation> allocation_;
   size_t virtual_address_offset_;
+#ifdef USE_HCU
+  hipMemAllocationProp allocation_prop_;
+  hipMemAccessDesc access_desc_;
+#else
   CUmemAllocationProp allocation_prop_;
   CUmemAccessDesc access_desc_;
+#endif
 #endif
   size_t virtual_address_size_;
 };

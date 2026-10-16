@@ -26,7 +26,11 @@
 
 #include "model_config_cuda.h"
 
+#ifdef USE_HCU
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda_runtime_api.h>
+#endif
 
 namespace triton { namespace core {
 
@@ -38,8 +42,13 @@ GetCudaStreamPriority(
   int cuda_stream_priority = 0;
 
   int min, max;
+#ifdef USE_HCU
+  hipError_t cuerr = hipDeviceGetStreamPriorityRange(&min, &max);
+  if ((cuerr != hipErrorNoDevice) && (cuerr != hipSuccess)) {
+#else
   cudaError_t cuerr = cudaDeviceGetStreamPriorityRange(&min, &max);
   if ((cuerr != cudaErrorNoDevice) && (cuerr != cudaSuccess)) {
+#endif
     return 0;
   }
 

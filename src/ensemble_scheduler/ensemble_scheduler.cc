@@ -307,7 +307,11 @@ class EnsembleContext {
       MetricModelReporter* metric_reporter,
       InferenceStatsAggregator* stats_aggregator, InferenceServer* is,
       EnsembleInfo* info, std::unique_ptr<InferenceRequest>& request,
+#ifdef USE_HCU
+      hipStream_t stream, triton::common::ThreadPool* callback_pool);
+#else
       cudaStream_t stream, triton::common::ThreadPool* callback_pool);
+#endif
 
   // Perform transition on 'context' state given the information of
   // 'completed_step'
@@ -404,7 +408,11 @@ class EnsembleContext {
 
   // All EnsembleContext will use the same CUDA stream managed by
   // the ensemble scheduler
+#ifdef USE_HCU
+  hipStream_t stream_;
+#else
   cudaStream_t stream_;
+#endif
 
   // Mutex to avoid concurrent call on 'PrepareSteps' where ensemble state
   // are being modified
@@ -461,7 +469,11 @@ EnsembleContext::EnsembleContext(
     MetricModelReporter* metric_reporter,
     InferenceStatsAggregator* stats_aggregator, InferenceServer* is,
     EnsembleInfo* info, std::unique_ptr<InferenceRequest>& request,
+#ifdef USE_HCU
+    hipStream_t stream, triton::common::ThreadPool* callback_pool)
+#else
     cudaStream_t stream, triton::common::ThreadPool* callback_pool)
+#endif
     : is_(is), info_(info), stream_(stream), inflight_step_counter_(0),
       allocator_(nullptr, TRITONSERVER_ResponseAllocatorDelete),
       callback_pool_(callback_pool)
@@ -1435,7 +1447,11 @@ EnsembleContext::CheckAndSetEnsembleOutput(
 
   if (cuda_async_copy) {
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+    hipStreamSynchronize(stream_);
+#else
     cudaStreamSynchronize(stream_);
+#endif
 #else
     return Status(
         Status::Code::INTERNAL,
@@ -1677,11 +1693,20 @@ EnsembleScheduler::EnsembleScheduler(
 {
 #ifdef TRITON_ENABLE_GPU
   // create CUDA stream
+#ifdef USE_HCU
+  auto cuerr = hipStreamCreate(&stream_);
+  if (cuerr != hipSuccess) {
+#else
   auto cuerr = cudaStreamCreate(&stream_);
   if (cuerr != cudaSuccess) {
+#endif
     stream_ = nullptr;
     LOG_ERROR << "unable to create stream for " << config.name() << ": "
+#ifdef USE_HCU
+              << hipGetErrorString(cuerr);
+#else
               << cudaGetErrorString(cuerr);
+#endif
   }
 #endif  // TRITON_ENABLE_GPU
 
@@ -1779,9 +1804,15 @@ EnsembleScheduler::~EnsembleScheduler()
 {
 #ifdef TRITON_ENABLE_GPU
   if (stream_ != nullptr) {
+#ifdef USE_HCU
+    hipError_t err = hipStreamDestroy(stream_);
+    if (err != hipSuccess) {
+      LOG_ERROR << "Failed to destroy cuda stream: " << hipGetErrorString(err);
+#else
     cudaError_t err = cudaStreamDestroy(stream_);
     if (err != cudaSuccess) {
       LOG_ERROR << "Failed to destroy cuda stream: " << cudaGetErrorString(err);
+#endif
     }
   }
 #endif  // TRITON_ENABLE_GPU

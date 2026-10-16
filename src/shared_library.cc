@@ -31,7 +31,11 @@
 #include "triton/common/logging.h"
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda_runtime_api.h>
+#endif
 #endif
 
 #ifdef _WIN32
@@ -155,7 +159,11 @@ SharedLibrary::OpenLibraryHandle(const std::string& path, void** handle)
   // deadlock. Intentionally ignore the CUDA_ERROR (if any) for containers
   // running on a CPU.
   int device_count;
+#ifdef USE_HCU
+  hipGetDeviceCount(&device_count);
+#else
   cudaGetDeviceCount(&device_count);
+#endif
 #endif
 
 #ifdef _WIN32

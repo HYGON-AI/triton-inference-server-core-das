@@ -61,7 +61,11 @@ CudaBlockManager::Create(double min_supported_compute_capability)
 
   instance_->block_size_ = block_size;
   for (auto gpu : supported_gpus) {
+#ifdef USE_HCU
+    instance_->free_blocks_[gpu] = std::vector<hipMemGenericAllocationHandle_t>();
+#else
     instance_->free_blocks_[gpu] = std::vector<CUmemGenericAllocationHandle>();
+#endif
   }
 
   return Status::Success;
@@ -101,10 +105,17 @@ CudaBlockManager::Allocate(
   }
 
   for (; block_index < num_blocks; ++block_index) {
+#ifdef USE_HCU
+    hipMemGenericAllocationHandle_t block{};
+    hipMemAllocationProp prop = {};
+    prop.type = hipMemAllocationTypePinned;
+    prop.location.type = hipMemLocationTypeDevice;
+#else
     CUmemGenericAllocationHandle block{};
     CUmemAllocationProp prop = {};
     prop.type = CU_MEM_ALLOCATION_TYPE_PINNED;
     prop.location.type = CU_MEM_LOCATION_TYPE_DEVICE;
+#endif
     prop.location.id = device_id;
     RETURN_IF_ERROR(CudaDriverHelper::GetInstance().CuMemCreate(
         &block, instance_->block_size_, &prop, 0 /* flags */));

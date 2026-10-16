@@ -68,6 +68,7 @@ pattern = "(?P<version>.+)"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tritonserver"]
+force-include = { "tritonserver/_c" = "tritonserver/_c" }
 
 [tool.hatch.build.targets.wheel.hooks.custom]
 # Tags the wheel platform-specific and generates the _c type stubs --

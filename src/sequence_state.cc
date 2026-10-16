@@ -188,11 +188,19 @@ SequenceStates::Initialize(
             initial_state_it->second.data_->MutableBuffer(
                 &memory_type, &memory_type_id);
 
+#ifdef USE_HCU
+        RETURN_IF_CUDA_ERR(
+            hipMemcpy(
+                dst_buffer, initial_state_buffer,
+                initial_state_it->second.data_->TotalByteSize(),
+                hipMemcpyHostToDevice),
+#else
         RETURN_IF_CUDA_ERR(
             cudaMemcpy(
                 dst_buffer, initial_state_buffer,
                 initial_state_it->second.data_->TotalByteSize(),
                 cudaMemcpyHostToDevice),
+#endif
             std::string("failed to copy initial state to GPU:"));
 #endif
       } else {

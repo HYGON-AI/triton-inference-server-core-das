@@ -31,7 +31,11 @@
 #include "tritonserver_apis.h"
 
 #ifdef TRITON_ENABLE_GPU
+#ifdef USE_HCU
+#include <hip/hip_runtime_api.h>
+#else
 #include <cuda_runtime_api.h>
+#endif
 
 #include "cuda_memory_manager.h"
 #endif  // TRITON_ENABLE_GPU

@@ -30,6 +30,27 @@
 
 # Triton Inference Server Core
 
+## Upstream Baseline and HYGON Modifications
+
+- Upstream project: Triton Inference Server Core
+- Upstream repository: https://github.com/triton-inference-server/core
+- Upstream branch: r26.09
+- Upstream Commit: b9ef1524379c71466ff66ea0fda4730ddd9eec80
+- Upstream license: BSD-3-Clause
+- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+
+Modified by Hygon Information Technology Co., Ltd.
+
+HYGON Contributions:
+
+- HCU (Hygon DTK / ROCm) build and runtime path: adds the `USE_HCU` CMake
+  option, HIP-based memory management, the HCU compatibility shim, and the
+  HCU loader fallback that prefers the HCU runtime library while keeping the
+  original CUDA path unchanged.
+- The HCU adaptation is contributed under the repository BSD-3-Clause license.
+  Modified upstream files keep their original NVIDIA copyright and license
+  headers unchanged.
+
 This repository holds the source code and headers for the library that
 implements the core functionality of Triton. The *core* library can be
 built as described below and used directly via its [C

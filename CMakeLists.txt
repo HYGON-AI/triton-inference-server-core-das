@@ -200,7 +200,7 @@ if(NOT TRITON_CORE_HEADERS_ONLY)
   option(TRITON_ENABLE_AZURE_STORAGE "Include Azure Storage Filesystem support in server" OFF)
 
   # Repo tags
-  set(TRITON_REPO_ORGANIZATION "https://github.com/forwithgod" CACHE STRING "Git repository to pull from")
+  set(TRITON_REPO_ORGANIZATION "https://github.com/HYGON-AI" CACHE STRING "Git repository to pull from")
   set(TRITON_COMMON_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server-common-das repo")
   set(TRITON_THIRD_PARTY_REPO_TAG "main" CACHE STRING "Tag for triton-inference-server/third_party repo")
 

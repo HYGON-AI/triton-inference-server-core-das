@@ -43,7 +43,7 @@ include(FetchContent)
 if(USE_HCU)
   # HCU: use the Hygon DTK adapted common (roctx/NVTX port), main branch
   set(REPO_COMMON_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/triton-inference-server-common-das.git")
-  set(REPO_COMMON_GIT_TAG "main")
+  set(REPO_COMMON_GIT_TAG "${TRITON_COMMON_REPO_TAG}")
 else()
   set(REPO_COMMON_GIT_REPOSITORY "${TRITON_REPO_ORGANIZATION}/common.git")
   set(REPO_COMMON_GIT_TAG "${TRITON_COMMON_REPO_TAG}")

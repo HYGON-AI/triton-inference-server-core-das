@@ -37,7 +37,7 @@
 - Upstream branch: r26.09
 - Upstream Commit: b9ef1524379c71466ff66ea0fda4730ddd9eec80
 - Upstream license: BSD-3-Clause
-- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- Repository license: [LICENSE](LICENSE)
 
 Modified by Hygon Information Technology Co., Ltd.
 

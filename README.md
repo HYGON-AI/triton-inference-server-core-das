@@ -37,7 +37,7 @@
 - Upstream branch: r26.09
 - Upstream Commit: b9ef1524379c71466ff66ea0fda4730ddd9eec80
 - Upstream license: BSD-3-Clause
-- Third-party notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+- Repository license: [LICENSE](LICENSE)
 
 Modified by Hygon Information Technology Co., Ltd.
 
@@ -122,4 +122,3 @@ support use the following command.
 ```
 $ cmake -DTRITON_CORE_HEADERS_ONLY=OFF -DTRITON_ENABLE_S3=ON -DTRITON_ENABLE_ENSEMBLE=ON ..
 ```
->>>>>>> sw
